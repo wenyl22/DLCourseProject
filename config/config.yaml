@@ -22,7 +22,8 @@ model:
     d_latent:         128
     d_polyph_emb:     64
     d_rfreq_emb:      64
-    d_style_emb:       64
+    d_style_emb:      64
+    add_style_reg:    True
     pretrained_params_path:      null
     pretrained_optim_path:       null
 

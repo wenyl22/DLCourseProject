@@ -83,7 +83,7 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
     global trained_steps
     trained_steps += 1
 
-    mu, logvar, dec_logits = model(
+    mu, logvar, dec_logits, style_cls_logits = model(
       batch_enc_inp, batch_dec_inp, 
       batch_inp_bar_pos, batch_rfreq_cls, batch_polyph_cls, batch_style_cls,
       padding_mask=batch_padding_mask
@@ -93,7 +93,7 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
       kl_beta = beta_cyclical_sched(trained_steps)
     else:
       kl_beta = kl_max_beta
-    losses = model.compute_loss(mu, logvar, kl_beta, free_bit_lambda, dec_logits, batch_dec_tgt)
+    losses = model.compute_loss(mu, logvar, kl_beta, free_bit_lambda, dec_logits, batch_dec_tgt, style_cls_logits, batch_style_cls)
     
     # anneal learning rate
     if trained_steps < lr_warmup_steps:
@@ -181,13 +181,13 @@ def validate(model, dloader, n_rounds=8, use_attr_cls=True):
           batch_rfreq_cls = None
           batch_polyph_cls = None
 
-        mu, logvar, dec_logits = model(
+        mu, logvar, dec_logits, style_cls_logits = model(
           batch_enc_inp, batch_dec_inp, 
           batch_inp_bar_pos, batch_rfreq_cls, batch_polyph_cls, batch_style_cls,
           padding_mask=batch_padding_mask
         )
 
-        losses = model.compute_loss(mu, logvar, 0.0, 0.0, dec_logits, batch_dec_tgt)
+        losses = model.compute_loss(mu, logvar, 0.0, 0.0, dec_logits, batch_dec_tgt, style_cls_logits)
 
         loss_rec.append(losses['recons_loss'].item())
         kl_loss_rec.append(losses['kldiv_raw'].item())
@@ -223,7 +223,7 @@ if __name__ == "__main__":
     mconf['enc_n_layer'], mconf['enc_n_head'], mconf['enc_d_model'], mconf['enc_d_ff'],
     mconf['dec_n_layer'], mconf['dec_n_head'], mconf['dec_d_model'], mconf['dec_d_ff'],
     mconf['d_latent'], mconf['d_embed'], dset.vocab_size,
-    d_polyph_emb=mconf['d_polyph_emb'], d_rfreq_emb=mconf['d_rfreq_emb'], d_style_emb=mconf['d_style_emb'],
+    d_polyph_emb=mconf['d_polyph_emb'], d_rfreq_emb=mconf['d_rfreq_emb'], d_style_emb=mconf['d_style_emb'], add_style_reg=mconf['add_style_reg']
   ).to(device)
   if pretrained_params_path:
     model.load_state_dict( torch.load(pretrained_params_path) )

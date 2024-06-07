@@ -15,7 +15,7 @@ class Net(nn.Module):
     dec_dropout=0.1, dec_activation='relu',
     d_rfreq_emb=32, d_polyph_emb=32, d_style_emb=32,
     n_rfreq_cls=8, n_polyph_cls=8, n_style_cls=4,
-    use_attr_cls=True
+    use_attr_cls=True, add_style_reg=True
   ):
         super(Net, self).__init__()
         self.enc_n_layer = enc_n_layer
@@ -43,6 +43,10 @@ class Net(nn.Module):
         )
 
         self.use_attr_cls = use_attr_cls
+        self.add_style_reg = add_style_reg
+        self.style_classifier = None
+        if add_style_reg:
+            self.style_classifier = nn.Linear(enc_d_model, n_style_cls)
         if use_attr_cls:
             self.decoder = Decoder(
                 dec_n_layer, dec_n_head, dec_d_model, dec_d_ff, d_vae_latent + d_polyph_emb + d_rfreq_emb + d_style_emb,
@@ -96,6 +100,11 @@ class Net(nn.Module):
             padding_mask = padding_mask.reshape(-1, padding_mask.size(-1))
 
         _, mu, logvar = self.encoder(enc_inp, padding_mask=padding_mask)
+        style_cls_logits = None
+        if self.add_style_reg:
+            _ = _.view(enc_bt_size, enc_n_bars, -1) # _ is of size (bsz * n_bars, d_model)
+            _ = _.mean(dim=1) # _ is of size (bsz, d_model)
+            style_cls_logits = self.style_classifier(_)
         vae_latent = self.reparameterize(mu, logvar)
         vae_latent_reshaped = vae_latent.reshape(enc_bt_size, enc_n_bars, -1)
 
@@ -119,7 +128,7 @@ class Net(nn.Module):
         dec_out = self.decoder(dec_inp, dec_seg_emb_cat)
         dec_logits = self.dec_out_proj(dec_out)
 
-        return mu, logvar, dec_logits
+        return mu, logvar, dec_logits, style_cls_logits
     def get_sampled_latent(self, inp, padding_mask=None, use_sampling=False, sampling_var=0.):
         token_emb = self.token_emb(inp)
         enc_inp = self.emb_dropout(token_emb) + self.pe(inp.size(0))
@@ -128,13 +137,14 @@ class Net(nn.Module):
         vae_latent = self.reparameterize(mu, logvar, use_sampling=use_sampling, sampling_var=sampling_var)
         return vae_latent
 
-    def generate(self, inp, dec_seg_emb, rfreq_cls=None, polyph_cls=None, keep_last_only=True):
+    def generate(self, inp, dec_seg_emb, rfreq_cls=None, polyph_cls=None, style_cls = None, keep_last_only=True):
         token_emb = self.token_emb(inp)
         dec_inp = self.emb_dropout(token_emb) + self.pe(inp.size(0))
         if rfreq_cls is not None and polyph_cls is not None:
             dec_rfreq_emb = self.rfreq_attr_emb(rfreq_cls)
             dec_polyph_emb = self.polyph_attr_emb(polyph_cls)
-            dec_seg_emb_cat = torch.cat([dec_seg_emb, dec_rfreq_emb, dec_polyph_emb], dim=-1)
+            dec_style_emb = self.style_attr_emb(style_cls)
+            dec_seg_emb_cat = torch.cat([dec_seg_emb, dec_rfreq_emb, dec_polyph_emb, dec_style_emb], dim=-1)
         else:
             dec_seg_emb_cat = dec_seg_emb
 
@@ -145,7 +155,7 @@ class Net(nn.Module):
             out = out[-1, ...]
 
         return out
-    def compute_loss(self, mu, logvar, beta, fb_lambda, dec_logits, dec_tgt):
+    def compute_loss(self, mu, logvar, beta, fb_lambda, dec_logits, dec_tgt, style_cls_logits = None):
         recons_loss = F.cross_entropy(
         dec_logits.view(-1, dec_logits.size(-1)), dec_tgt.contiguous().view(-1), 
         ignore_index=self.n_token - 1, reduction='mean'

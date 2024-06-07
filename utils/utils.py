@@ -151,7 +151,7 @@ def item2event(groups):
             if item.name == 'Note':
                 # pitch
                 events.append(Event(
-                    name='Note_On',
+                    name='Note_Pitch',
                     time=item.start, 
                     value=item.pitch,
                     text='{}'.format(item.pitch)))
@@ -181,6 +181,8 @@ def item2event(groups):
                     text='{}'.format(item.pitch)))
             elif item.name == 'Tempo':
                 tempo = item.pitch
+                if tempo < 30: tempo = 30
+                if tempo > 210: tempo = 210
                 tempo_value = Event('Tempo', item.start, 
                     tempo, None)
                 events.append(tempo_value)     

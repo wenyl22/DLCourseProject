@@ -14,7 +14,7 @@ def add(event):
         ev2id['{}_{}'.format(event.name, event.value)] = id
         id2ev[id] = '{}_{}'.format(event.name, event.value)
 def main():
-    paths =['./midi/pop/*/']
+    paths =['./midi/pop/*/', './midi/classic/*/']
     dst = './processed_midi/'
     train_files = []
     test_files = []
