@@ -1,18 +1,20 @@
 import torch
 import torch.nn as nn
-from encoder import Encoder
-from decoder import Decoder
-from position_encoding import SinusoidPositionalEncoding
-from token_embedding import TokenEmbedding
-from weight_init import weights_init
+import torch.nn.functional as F
+from model.encoder import Encoder
+from model.decoder import Decoder
+from model.position_encoding import SinusoidPositionalEncoding
+from model.token_embedding import TokenEmbedding
+from model.weight_init import weights_init
+
 class Net(nn.Module):
     def __init__(self, enc_n_layer, enc_n_head, enc_d_model, enc_d_ff, 
     dec_n_layer, dec_n_head, dec_d_model, dec_d_ff,
     d_vae_latent, d_embed, n_token,
     enc_dropout=0.1, enc_activation='relu',
     dec_dropout=0.1, dec_activation='relu',
-    d_rfreq_emb=32, d_polyph_emb=32,
-    n_rfreq_cls=8, n_polyph_cls=8,
+    d_rfreq_emb=32, d_polyph_emb=32, d_style_emb=32,
+    n_rfreq_cls=8, n_polyph_cls=8, n_style_cls=4,
     use_attr_cls=True
   ):
         super(Net, self).__init__()
@@ -43,7 +45,7 @@ class Net(nn.Module):
         self.use_attr_cls = use_attr_cls
         if use_attr_cls:
             self.decoder = Decoder(
-                dec_n_layer, dec_n_head, dec_d_model, dec_d_ff, d_vae_latent + d_polyph_emb + d_rfreq_emb,
+                dec_n_layer, dec_n_head, dec_d_model, dec_d_ff, d_vae_latent + d_polyph_emb + d_rfreq_emb + d_style_emb,
                 dropout=dec_dropout, activation=dec_activation,
             )
         else:
@@ -57,9 +59,11 @@ class Net(nn.Module):
             self.d_polyph_emb = d_polyph_emb
             self.rfreq_attr_emb = TokenEmbedding(n_rfreq_cls, d_rfreq_emb, d_rfreq_emb)
             self.polyph_attr_emb = TokenEmbedding(n_polyph_cls, d_polyph_emb, d_polyph_emb)
+            self.style_attr_emb = TokenEmbedding(n_style_cls, d_style_emb, d_style_emb)
         else:
             self.rfreq_attr_emb = None
             self.polyph_attr_emb = None
+            self.style_attr_emb = None
         self.emb_dropout = nn.Dropout(self.enc_dropout)
         self.apply(weights_init)
     def reparameterize(self, mu, logvar, use_sampling=True, sampling_var=1.):
@@ -70,7 +74,7 @@ class Net(nn.Module):
             eps = torch.zeros_like(std).to(mu.device)
         return eps * std + mu
 
-    def forward(self, enc_inp, dec_inp, dec_inp_bar_pos, rfreq_cls=None, polyph_cls=None, padding_mask=None):
+    def forward(self, enc_inp, dec_inp, dec_inp_bar_pos, rfreq_cls=None, polyph_cls=None, style_cls=None, padding_mask=None):
         # [shape of enc_inp] (seqlen_per_bar, bsize, n_bars_per_sample)
         enc_bt_size, enc_n_bars = enc_inp.size(1), enc_inp.size(2)
         enc_token_emb = self.token_emb(enc_inp)
@@ -101,11 +105,14 @@ class Net(nn.Module):
         # -- stores [[start idx of bar #1, sample #1, ..., start idx of bar #K, sample #1, seqlen of sample #1], [same for another sample], ...]
             for b, (st, ed) in enumerate(zip(dec_inp_bar_pos[n, :-1], dec_inp_bar_pos[n, 1:])):
                 dec_seg_emb[st:ed, n, :] = vae_latent_reshaped[n, b, :]
-
-        if rfreq_cls is not None and polyph_cls is not None and self.use_attr_cls:
+        # print("dec_seg_emb", dec_seg_emb.size())
+        # print("use_attr_cls", self.use_attr_cls)
+        # print("style_cls", style_cls)
+        if rfreq_cls is not None and polyph_cls is not None and style_cls is not None and self.use_attr_cls:
             dec_rfreq_emb = self.rfreq_attr_emb(rfreq_cls)
             dec_polyph_emb = self.polyph_attr_emb(polyph_cls)
-            dec_seg_emb_cat = torch.cat([dec_seg_emb, dec_rfreq_emb, dec_polyph_emb], dim=-1)
+            dec_style_emb = self.style_attr_emb(style_cls)
+            dec_seg_emb_cat = torch.cat([dec_seg_emb, dec_rfreq_emb, dec_polyph_emb, dec_style_emb], dim=-1)
         else:
             dec_seg_emb_cat = dec_seg_emb
 
@@ -138,3 +145,21 @@ class Net(nn.Module):
             out = out[-1, ...]
 
         return out
+    def compute_loss(self, mu, logvar, beta, fb_lambda, dec_logits, dec_tgt):
+        recons_loss = F.cross_entropy(
+        dec_logits.view(-1, dec_logits.size(-1)), dec_tgt.contiguous().view(-1), 
+        ignore_index=self.n_token - 1, reduction='mean'
+        ).float()
+
+        kl_raw = -0.5 * (1 + logvar - mu ** 2 - logvar.exp()).mean(dim=0)
+        kl_before_free_bits = kl_raw.mean()
+        kl_after_free_bits = kl_raw.clamp(min=fb_lambda)
+        kldiv_loss = kl_after_free_bits.mean()
+
+        return {
+        'beta': beta,
+        'total_loss': recons_loss + beta * kldiv_loss,
+        'kldiv_loss': kldiv_loss,
+        'kldiv_raw': kl_before_free_bits,
+        'recons_loss': recons_loss
+        }

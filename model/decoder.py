@@ -28,6 +28,7 @@ class Decoder(nn.Module):
 
     def forward(self, x, seg_emb):
         attn_mask = generate_causal_mask(x.size(0)).to(x.device)
+      #  print("seg_emb", seg_emb.size())
         seg_emb = self.seg_emb_proj(seg_emb)
         out = x
         for i in range(self.n_layer):

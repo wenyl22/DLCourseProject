@@ -4,7 +4,7 @@ import os, pickle
 import numpy as np
 from collections import Counter
 
-data_dir = 'processed_midi/classic/'
+data_dir = 'processed_midi/'
 polyph_out_dir = data_dir + 'attr_cls/polyph'
 rhythm_out_dir = data_dir + 'attr_cls/rhythm'
 

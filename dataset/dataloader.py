@@ -5,7 +5,12 @@ import numpy as np
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from torch.utils.data import Dataset, DataLoader
-
+STYLE_TO_ID = {
+    'classic': 1,
+    'pop': 2,
+    'jazz': 0,
+    'anime': 3,
+}
 IDX_TO_KEY = {
   0: 'A',
   1: 'A#',
@@ -29,7 +34,7 @@ def get_chord_tone(chord_event):
   return tone
 
 def transpose_chord(chord_event, n_keys):
-  if chord_event['value'] == 'N':
+  if chord_event['value'] == 'N:N':
     return chord_event
   orig_tone = get_chord_tone(chord_event)
   orig_tone_idx = KEY_TO_IDX[orig_tone]
@@ -190,8 +195,8 @@ class ModelDataset(Dataset):
     return augmented_bar_events
 
   def get_attr_classes(self, piece, st_bar):
-    polyph_cls = pickle_load(os.path.join(self.data_dir, 'attr_cls/polyph', piece))[st_bar : st_bar + self.model_max_bars]
-    rfreq_cls = pickle_load(os.path.join(self.data_dir, 'attr_cls/rhythm', piece))[st_bar : st_bar + self.model_max_bars]
+    polyph_cls = pickle_load(os.path.join(self.data_dir, 'processed_midi/attr_cls/polyph', piece))[st_bar : st_bar + self.model_max_bars]
+    rfreq_cls = pickle_load(os.path.join(self.data_dir, 'processed_midi/attr_cls/rhythm', piece))[st_bar : st_bar + self.model_max_bars]
 
     polyph_cls.extend([0 for _ in range(self.model_max_bars - len(polyph_cls))])
     rfreq_cls.extend([0 for _ in range(self.model_max_bars - len(rfreq_cls))])
@@ -253,15 +258,21 @@ class ModelDataset(Dataset):
     target = np.array(inp[1:], dtype=int)
     inp = np.array(inp[:-1], dtype=int)
     assert len(inp) == len(target)
-
+    style = None
+    for s in STYLE_TO_ID:
+      if s in self.pieces[idx]:
+        style = STYLE_TO_ID[s]
+        break
+    # expand style
+    style = np.array([style] * self.model_dec_seqlen, dtype=int)
     return {
       'id': idx,
-      'piece_id': int(os.path.basename(self.pieces[idx]).replace('.pkl', '')),
       'st_bar_id': st_bar,
       'bar_pos': np.array(bar_pos, dtype=int),
       'enc_input': enc_inp,
       'dec_input': inp[:self.model_dec_seqlen],
       'dec_target': target[:self.model_dec_seqlen],
+      'style_cls': style,
       'polyph_cls': polyph_cls_expanded,
       'rhymfreq_cls': rfreq_cls_expanded,
       'polyph_cls_bar': np.array(polyph_cls),
