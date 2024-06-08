@@ -1,5 +1,5 @@
 data:
-    data_dir:         ./
+    data_dir:         ./processed_midi/
     train_split:      ./pickles/train_pieces.pkl
     val_split:        ./pickles/val_pieces.pkl
     test_split:       ./pickles/test_pieces.pkl
@@ -23,7 +23,7 @@ model:
     d_polyph_emb:     64
     d_rfreq_emb:      64
     d_style_emb:      64
-    add_style_reg:    True
+    add_style_reg:    False
     pretrained_params_path:      null
     pretrained_optim_path:       null
 
@@ -31,7 +31,7 @@ training:
     device:           cuda:0
     ckpt_dir:         ./ckpt/enc_dec_12L-16_bars-seqlen_1280
     trained_steps:    0
-    max_epochs:       1000
+    max_epochs:       200
     max_lr:           1.0e-4
     min_lr:           5.0e-6
     lr_warmup_steps:  200

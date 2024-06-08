@@ -34,7 +34,7 @@ def get_chord_tone(chord_event):
   return tone
 
 def transpose_chord(chord_event, n_keys):
-  if chord_event['value'] == 'N:N':
+  if 'N' in chord_event['value']:
     return chord_event
   orig_tone = get_chord_tone(chord_event)
   orig_tone_idx = KEY_TO_IDX[orig_tone]
@@ -78,6 +78,8 @@ def pickle_load(path):
 
 def convert_event(event_seq, event2idx, to_ndarr=True):
   if isinstance(event_seq[0], dict):
+    # for i in range(len(event_seq)):
+    #     print('{}_{}'.format(event_seq[i]['name'], event_seq[i]['value']))
     event_seq = [event2idx['{}_{}'.format(e['name'], e['value'])] for e in event_seq]
   else:
     event_seq = [event2idx[e] for e in event_seq]
@@ -90,7 +92,7 @@ def convert_event(event_seq, event2idx, to_ndarr=True):
 class ModelDataset(Dataset):
   def __init__(self, data_dir, vocab_file, 
                model_enc_seqlen=128, model_dec_seqlen=1280, model_max_bars=16,
-               pieces=[], do_augment=True, augment_range=range(-6, 7), 
+               pieces=[], do_augment=False, augment_range=range(-6, 7), 
                min_pitch=22, max_pitch=107, pad_to_same=True, use_attr_cls=True,
                appoint_st_bar=None, dec_end_pad_value=None):
     self.vocab_file = vocab_file
@@ -130,9 +132,9 @@ class ModelDataset(Dataset):
   
   def build_dataset(self):
     if not self.pieces:
-      self.pieces = sorted( glob(os.path.join(self.data_dir, '*.pkl')) )
+      self.pieces = sorted( glob(os.path.join(self.data_dir , '*.pkl')) )
     else:
-      self.pieces = sorted( [os.path.join(self.data_dir, p) for p in self.pieces] )
+      self.pieces = sorted( [os.path.join(self.data_dir , p) for p in self.pieces] )
 
     self.piece_bar_pos = []
 
@@ -195,8 +197,8 @@ class ModelDataset(Dataset):
     return augmented_bar_events
 
   def get_attr_classes(self, piece, st_bar):
-    polyph_cls = pickle_load(os.path.join(self.data_dir, 'processed_midi/attr_cls/polyph', piece))[st_bar : st_bar + self.model_max_bars]
-    rfreq_cls = pickle_load(os.path.join(self.data_dir, 'processed_midi/attr_cls/rhythm', piece))[st_bar : st_bar + self.model_max_bars]
+    polyph_cls = pickle_load(os.path.join(self.data_dir, 'attr_cls/polyph', piece))[st_bar : st_bar + self.model_max_bars]
+    rfreq_cls = pickle_load(os.path.join(self.data_dir, 'attr_cls/rhythm', piece))[st_bar : st_bar + self.model_max_bars]
 
     polyph_cls.extend([0 for _ in range(self.model_max_bars - len(polyph_cls))])
     rfreq_cls.extend([0 for _ in range(self.model_max_bars - len(rfreq_cls))])
@@ -229,7 +231,7 @@ class ModelDataset(Dataset):
   def __getitem__(self, idx):
     if torch.is_tensor(idx):
       idx = idx.tolist()
-
+    #print(self.pieces[idx])
     bar_events, st_bar, bar_pos, enc_n_bars = self.get_sample_from_file(idx)
     if self.do_augment:
       bar_events = self.pitch_augment(bar_events)
@@ -258,13 +260,14 @@ class ModelDataset(Dataset):
     target = np.array(inp[1:], dtype=int)
     inp = np.array(inp[:-1], dtype=int)
     assert len(inp) == len(target)
-    style = None
+    style = 1
     for s in STYLE_TO_ID:
       if s in self.pieces[idx]:
         style = STYLE_TO_ID[s]
         break
     # expand style
     style = np.array([style] * self.model_dec_seqlen, dtype=int)
+    #print(self.pieces[idx], "loaded")
     return {
       'id': idx,
       'st_bar_id': st_bar,

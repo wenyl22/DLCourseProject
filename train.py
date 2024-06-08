@@ -1,11 +1,12 @@
 import sys, os, time
+import pickle
 from model.vae import Net
 from dataset.dataloader import ModelDataset
 from torch.utils.data import DataLoader
-from torch import optim
+
+from torch import nn, optim
 import torch
 import numpy as np
-import pickle
 
 import yaml
 config_path = sys.argv[1]
@@ -83,7 +84,7 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
     global trained_steps
     trained_steps += 1
 
-    mu, logvar, dec_logits, style_cls_logits = model(
+    mu, logvar, dec_logits = model(
       batch_enc_inp, batch_dec_inp, 
       batch_inp_bar_pos, batch_rfreq_cls, batch_polyph_cls, batch_style_cls,
       padding_mask=batch_padding_mask
@@ -93,7 +94,7 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
       kl_beta = beta_cyclical_sched(trained_steps)
     else:
       kl_beta = kl_max_beta
-    losses = model.compute_loss(mu, logvar, kl_beta, free_bit_lambda, dec_logits, batch_dec_tgt, style_cls_logits, batch_style_cls)
+    losses = model.compute_loss(mu, logvar, kl_beta, free_bit_lambda, dec_logits, batch_dec_tgt)
     
     # anneal learning rate
     if trained_steps < lr_warmup_steps:
@@ -111,7 +112,22 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
     recons_loss_ema = compute_loss_ema(recons_loss_ema, losses['recons_loss'].item())
     kl_loss_ema = compute_loss_ema(kl_loss_ema, losses['kldiv_loss'].item())
     kl_raw_ema = compute_loss_ema(kl_raw_ema, losses['kldiv_raw'].item())
+    print (' -- epoch {:03d} | batch {:03d}: len: {}\n\t * loss = (RC: {:.4f} | KL: {:.4f} | KL_raw: {:.4f}), step = {}, beta: {:.4f} time_elapsed = {:.2f} secs'.format(
+    epoch, batch_idx, batch_inp_lens, recons_loss_ema, kl_loss_ema, kl_raw_ema, trained_steps, kl_beta, time.time() - st
+    ))
 
+    if not trained_steps % log_interval:
+      log_data = {
+        'ep': epoch,
+        'steps': trained_steps,
+        'recons_loss': recons_loss_ema,
+        'kldiv_loss': kl_loss_ema,
+        'kldiv_raw': kl_raw_ema,
+        'time': time.time() - st
+      }
+      log_epoch(
+        os.path.join(ckpt_dir, 'log.txt'), log_data, is_init=not os.path.exists(os.path.join(ckpt_dir, 'log.txt'))
+      )
 
     if not trained_steps % val_interval:
       vallosses = validate(model, dloader_val, n_rounds=3)
@@ -133,7 +149,6 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
             kl_raw_ema
           ))
       )
-    if not trained_steps % ckpt_interval * 20:  
       torch.save(optim.state_dict(),
         os.path.join(optim_dir, 'step_{:d}-RC_{:.3f}-KL_{:.3f}-optim.pt'.format(
             trained_steps,
@@ -141,6 +156,7 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
             kl_raw_ema
           ))
       )
+
   print ('[epoch {:03d}] training completed\n  -- loss = (RC: {:.4f} | KL: {:.4f} | KL_raw: {:.4f})\n  -- time elapsed = {:.2f} secs.'.format(
     epoch, recons_loss_ema, kl_loss_ema, kl_raw_ema, time.time() - st
   ))
@@ -164,6 +180,7 @@ def validate(model, dloader, n_rounds=8, use_attr_cls=True):
   print ('[info] validating ...')
   with torch.no_grad():
     for i in range(n_rounds):
+      print ('[round {}]'.format(i+1))
 
       for batch_idx, batch_samples in enumerate(dloader):
         model.zero_grad()
@@ -181,13 +198,13 @@ def validate(model, dloader, n_rounds=8, use_attr_cls=True):
           batch_rfreq_cls = None
           batch_polyph_cls = None
 
-        mu, logvar, dec_logits, style_cls_logits = model(
+        mu, logvar, dec_logits = model(
           batch_enc_inp, batch_dec_inp, 
           batch_inp_bar_pos, batch_rfreq_cls, batch_polyph_cls, batch_style_cls,
           padding_mask=batch_padding_mask
         )
 
-        losses = model.compute_loss(mu, logvar, 0.0, 0.0, dec_logits, batch_dec_tgt, style_cls_logits)
+        losses = model.compute_loss(mu, logvar, 0.0, 0.0, dec_logits, batch_dec_tgt)
 
         loss_rec.append(losses['recons_loss'].item())
         kl_loss_rec.append(losses['kldiv_raw'].item())
@@ -197,7 +214,7 @@ def validate(model, dloader, n_rounds=8, use_attr_cls=True):
 if __name__ == "__main__":
   dset = ModelDataset(
     config['data']['data_dir'], config['data']['vocab_path'], 
-    do_augment=True, 
+    do_augment=False, 
     model_enc_seqlen=config['data']['enc_seqlen'], 
     model_dec_seqlen=config['data']['dec_seqlen'], 
     model_max_bars=config['data']['max_bars'],
@@ -223,7 +240,7 @@ if __name__ == "__main__":
     mconf['enc_n_layer'], mconf['enc_n_head'], mconf['enc_d_model'], mconf['enc_d_ff'],
     mconf['dec_n_layer'], mconf['dec_n_head'], mconf['dec_d_model'], mconf['dec_d_ff'],
     mconf['d_latent'], mconf['d_embed'], dset.vocab_size,
-    d_polyph_emb=mconf['d_polyph_emb'], d_rfreq_emb=mconf['d_rfreq_emb'], d_style_emb=mconf['d_style_emb'], add_style_reg=mconf['add_style_reg']
+    d_polyph_emb=mconf['d_polyph_emb'], d_rfreq_emb=mconf['d_rfreq_emb'], d_style_emb=mconf['d_style_emb']
   ).to(device)
   if pretrained_params_path:
     model.load_state_dict( torch.load(pretrained_params_path) )

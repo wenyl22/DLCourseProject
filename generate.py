@@ -191,7 +191,9 @@ def generate_on_latent_ctrl_vanilla_truncate(
 ########################################
 # change attribute classes
 ########################################
-def random_shift_attr_cls(n_samples, upper=4, lower=-3):
+def random_shift_attr_cls(n_samples, upper=1, lower=-1, force = False):
+  if force:
+    return np.random.randint(0, 1, (n_samples,))
   return np.random.randint(lower, upper, (n_samples,))
 
 
@@ -260,8 +262,8 @@ if __name__ == "__main__":
                   use_sampling=config['generate']['use_latent_sampling'],
                   sampling_var=config['generate']['latent_sampling_var']
                 )
-    p_cls_diff = random_shift_attr_cls(n_samples_per_piece)
-    r_cls_diff = random_shift_attr_cls(n_samples_per_piece)
+    p_cls_diff = random_shift_attr_cls(n_samples_per_piece, force = True)
+    r_cls_diff = random_shift_attr_cls(n_samples_per_piece, force = True)
     s_cls_diff = random_shift_attr_cls(n_samples_per_piece)
     piece_entropies = []
     for samp in range(n_samples_per_piece):

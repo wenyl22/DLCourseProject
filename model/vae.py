@@ -44,9 +44,9 @@ class Net(nn.Module):
 
         self.use_attr_cls = use_attr_cls
         self.add_style_reg = add_style_reg
-        self.style_classifier = None
-        if add_style_reg:
-            self.style_classifier = nn.Linear(enc_d_model, n_style_cls)
+        # self.style_classifier = None
+        # if add_style_reg:
+        #     self.style_classifier = nn.Linear(enc_d_model, n_style_cls)
         if use_attr_cls:
             self.decoder = Decoder(
                 dec_n_layer, dec_n_head, dec_d_model, dec_d_ff, d_vae_latent + d_polyph_emb + d_rfreq_emb + d_style_emb,
@@ -100,11 +100,11 @@ class Net(nn.Module):
             padding_mask = padding_mask.reshape(-1, padding_mask.size(-1))
 
         _, mu, logvar = self.encoder(enc_inp, padding_mask=padding_mask)
-        style_cls_logits = None
-        if self.add_style_reg:
-            _ = _.view(enc_bt_size, enc_n_bars, -1) # _ is of size (bsz * n_bars, d_model)
-            _ = _.mean(dim=1) # _ is of size (bsz, d_model)
-            style_cls_logits = self.style_classifier(_)
+        # style_cls_logits = None
+        # if self.add_style_reg:
+        #     _ = _.view(enc_bt_size, enc_n_bars, -1) # _ is of size (bsz * n_bars, d_model)
+        #     _ = _.mean(dim=1) # _ is of size (bsz, d_model)
+        #     style_cls_logits = self.style_classifier(_)
         vae_latent = self.reparameterize(mu, logvar)
         vae_latent_reshaped = vae_latent.reshape(enc_bt_size, enc_n_bars, -1)
 
@@ -115,8 +115,10 @@ class Net(nn.Module):
             for b, (st, ed) in enumerate(zip(dec_inp_bar_pos[n, :-1], dec_inp_bar_pos[n, 1:])):
                 dec_seg_emb[st:ed, n, :] = vae_latent_reshaped[n, b, :]
         # print("dec_seg_emb", dec_seg_emb.size())
-        # print("use_attr_cls", self.use_attr_cls)
         # print("style_cls", style_cls)
+        # print("use_attr_cls", self.use_attr_cls)
+        # print("add_style_reg", self.add_style_reg)
+
         if rfreq_cls is not None and polyph_cls is not None and style_cls is not None and self.use_attr_cls:
             dec_rfreq_emb = self.rfreq_attr_emb(rfreq_cls)
             dec_polyph_emb = self.polyph_attr_emb(polyph_cls)
@@ -128,7 +130,7 @@ class Net(nn.Module):
         dec_out = self.decoder(dec_inp, dec_seg_emb_cat)
         dec_logits = self.dec_out_proj(dec_out)
 
-        return mu, logvar, dec_logits, style_cls_logits
+        return mu, logvar, dec_logits#, style_cls_logits
     def get_sampled_latent(self, inp, padding_mask=None, use_sampling=False, sampling_var=0.):
         token_emb = self.token_emb(inp)
         enc_inp = self.emb_dropout(token_emb) + self.pe(inp.size(0))

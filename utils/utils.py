@@ -171,7 +171,7 @@ def item2event(groups):
                 events.append(Event(
                     name='Note_Duration',
                     time=item.start,
-                    value=(index + 1) * 60,
+                    value=(index + 1)* 60,
                     text='{}/{}'.format(duration, DEFAULT_DURATION_BINS[index])))
             elif item.name == 'Chord':
                 events.append(Event(
@@ -182,8 +182,8 @@ def item2event(groups):
             elif item.name == 'Tempo':
                 tempo = item.pitch
                 if tempo < 30: tempo = 30
-                if tempo > 210: tempo = 210
+                if tempo >= 210: tempo = 209
                 tempo_value = Event('Tempo', item.start, 
                     tempo, None)
-                events.append(tempo_value)     
+                events.append(tempo_value)
     return events
