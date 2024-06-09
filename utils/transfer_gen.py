@@ -53,7 +53,7 @@ def transfer_gen(dset, model, config):
     for samp in range(n_samples_per_piece):
       p_polyph_cls = (p_data['polyph_cls_bar'] + p_cls_diff[samp]).clamp(0, 7).long()
       p_rfreq_cls = (p_data['rhymfreq_cls_bar'] + r_cls_diff[samp]).clamp(0, 7).long()
-      p_style_cls = (p_data['style_cls'] + s_cls_diff[samp]).clamp(0, 4).long()
+      p_style_cls = (p_data['style_cls'] + s_cls_diff[samp]).clamp(0, 3).long()
       print ('[info] piece: {}, bar: {}'.format(p_id, p_bar_id))
       out_file = os.path.join(out_dir, 'transfer_id{}_bar{}_sample{:02d}_poly{}_rhym{}_style_{}_to_{}'.format(
         p, p_bar_id, samp + 1,
