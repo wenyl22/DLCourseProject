@@ -87,7 +87,7 @@ def interpolate_gen(dset, model, config):
         s_cls_inter = s_cls[0]
       else:
         s_cls_inter = s_cls[1]
-      out_file = os.path.join(out_dir, 'interpolate_{}/{}_style_{}'.format(i , n_pieces, ID_TO_STYLE[s_cls_inter[0]]))
+      out_file = os.path.join(out_dir, 'interpolate_{}/{}_style_{}'.format(i , n_pieces, ID_TO_STYLE[s_cls_inter[0].item()]))
       # generate
       song, t_sec, entropies = generate_on_latent_ctrl_vanilla_truncate(
                                   model, p_latents_inter, r_cls_inter, p_cls_inter, s_cls_inter, dset.event2idx, dset.idx2event,

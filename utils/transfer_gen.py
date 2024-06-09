@@ -59,8 +59,8 @@ def transfer_gen(dset, model, config):
         p, p_bar_id, samp + 1,
         '+{}'.format(p_cls_diff[samp]) if p_cls_diff[samp] >= 0 else p_cls_diff[samp], 
         '+{}'.format(r_cls_diff[samp]) if r_cls_diff[samp] >= 0 else r_cls_diff[samp],
-        '{}'.format(ID_TO_STYLE[p_data['style_cls'][0]]),
-        '{}'.format(ID_TO_STYLE[p_style_cls[0]]), 
+        '{}'.format(ID_TO_STYLE[p_data['style_cls'][0].item()]),
+        '{}'.format(ID_TO_STYLE[p_style_cls[0].item()]), 
       ))      
       # generate
       song, t_sec, entropies = generate_on_latent_ctrl_vanilla_truncate(
