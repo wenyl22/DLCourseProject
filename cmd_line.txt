@@ -1,1 +1,6 @@
-python generate.py config/config.yaml /local_data/wyl/DLCourseProject/ckpt/enc_dec_12L-16_bars-seqlen_1280/params/step_16000-RC_1.339-KL_0.596-model.pt ./generations 3 5
+python generate.py config/config.yaml /local_data/wyl/DLCourseProject/ckpt/enc_dec_12L-16_bars-seqlen_1280/params/step_66000-RC_0.902-KL_0.500-model.pt ./generations 5 5
+
+python generate.py config/config_reg.yaml /local_data/wyl/DLCourseProject/ckpt/enc_dec_12L-16_bars-seqlen_1280_reg/params/step_31000-RC_0.860-KL_0.593-model.pt ./generations_reg 5 5
+
+python train.py config/config_reg.yaml 
+python train.py config/config.yaml 

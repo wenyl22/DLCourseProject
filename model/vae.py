@@ -44,9 +44,9 @@ class Net(nn.Module):
 
         self.use_attr_cls = use_attr_cls
         self.add_style_reg = add_style_reg
-        # self.style_classifier = None
-        # if add_style_reg:
-        #     self.style_classifier = nn.Linear(enc_d_model, n_style_cls)
+        self.style_classifier = None
+        if add_style_reg:
+            self.style_classifier = nn.Linear(enc_d_model, n_style_cls)
         if use_attr_cls:
             self.decoder = Decoder(
                 dec_n_layer, dec_n_head, dec_d_model, dec_d_ff, d_vae_latent + d_polyph_emb + d_rfreq_emb + d_style_emb,
@@ -100,11 +100,11 @@ class Net(nn.Module):
             padding_mask = padding_mask.reshape(-1, padding_mask.size(-1))
 
         _, mu, logvar = self.encoder(enc_inp, padding_mask=padding_mask)
-        # style_cls_logits = None
-        # if self.add_style_reg:
-        #     _ = _.view(enc_bt_size, enc_n_bars, -1) # _ is of size (bsz * n_bars, d_model)
-        #     _ = _.mean(dim=1) # _ is of size (bsz, d_model)
-        #     style_cls_logits = self.style_classifier(_)
+        style_cls_logits = None
+        if self.add_style_reg:
+            _ = _.view(enc_bt_size, enc_n_bars, -1) # _ is of size (bsz * n_bars, d_model)
+            _ = _.mean(dim=1) # _ is of size (bsz, d_model)
+            style_cls_logits = self.style_classifier(_)
         vae_latent = self.reparameterize(mu, logvar)
         vae_latent_reshaped = vae_latent.reshape(enc_bt_size, enc_n_bars, -1)
 
@@ -130,7 +130,7 @@ class Net(nn.Module):
         dec_out = self.decoder(dec_inp, dec_seg_emb_cat)
         dec_logits = self.dec_out_proj(dec_out)
 
-        return mu, logvar, dec_logits#, style_cls_logits
+        return mu, logvar, dec_logits, style_cls_logits
     def get_sampled_latent(self, inp, padding_mask=None, use_sampling=False, sampling_var=0.):
         token_emb = self.token_emb(inp)
         enc_inp = self.emb_dropout(token_emb) + self.pe(inp.size(0))
@@ -157,21 +157,24 @@ class Net(nn.Module):
             out = out[-1, ...]
 
         return out
-    def compute_loss(self, mu, logvar, beta, fb_lambda, dec_logits, dec_tgt, style_cls_logits = None):
+    def compute_loss(self, mu, logvar, beta, fb_lambda, dec_logits, dec_tgt, style_cls = None, style_cls_logits = None):
         recons_loss = F.cross_entropy(
-        dec_logits.view(-1, dec_logits.size(-1)), dec_tgt.contiguous().view(-1), 
-        ignore_index=self.n_token - 1, reduction='mean'
+            dec_logits.view(-1, dec_logits.size(-1)), dec_tgt.contiguous().view(-1), 
+            ignore_index=self.n_token - 1, reduction='mean'
         ).float()
 
         kl_raw = -0.5 * (1 + logvar - mu ** 2 - logvar.exp()).mean(dim=0)
         kl_before_free_bits = kl_raw.mean()
         kl_after_free_bits = kl_raw.clamp(min=fb_lambda)
         kldiv_loss = kl_after_free_bits.mean()
-
+       # print(style_cls_logits.size())
+       # print(style_cls.size())
+        style_loss = F.cross_entropy(style_cls_logits, style_cls[0, :], reduction='mean')
         return {
-        'beta': beta,
-        'total_loss': recons_loss + beta * kldiv_loss,
-        'kldiv_loss': kldiv_loss,
-        'kldiv_raw': kl_before_free_bits,
-        'recons_loss': recons_loss
+            'beta': beta,
+            'total_loss': recons_loss + beta * kldiv_loss + 0.07 * style_loss,
+            'kldiv_loss': kldiv_loss,
+            'kldiv_raw': kl_before_free_bits,
+            'style_loss': style_loss,
+            'recons_loss': recons_loss
         }

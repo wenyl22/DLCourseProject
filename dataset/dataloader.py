@@ -8,8 +8,8 @@ from torch.utils.data import Dataset, DataLoader
 STYLE_TO_ID = {
     'classic': 1,
     'pop': 2,
-    'jazz': 0,
-    'anime': 3,
+    'jazz': 3,
+    'anime': 0,
 }
 IDX_TO_KEY = {
   0: 'A',
@@ -163,7 +163,7 @@ class ModelDataset(Dataset):
     elif self.appoint_st_bar is not None and self.appoint_st_bar < len(self.piece_bar_pos[piece_idx]) - self.model_max_bars:
       picked_st_bar = self.appoint_st_bar
     else:
-      picked_st_bar = 0
+        picked_st_bar = 0
 
     piece_bar_pos = self.piece_bar_pos[piece_idx]
 

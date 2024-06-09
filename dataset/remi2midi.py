@@ -45,7 +45,7 @@ def read_generated_txt(generated_path):
 
 def remi2midi(events, output_midi_path=None, is_full_event=False, return_first_tempo=False, enforce_tempo=False, enforce_tempo_val=None):
   events = [ConversionEvent(ev, is_full_event=is_full_event) for ev in events]
-
+  print(events)
   assert events[0].name == 'Bar'
   temp_notes = []
   temp_tempos = []
@@ -100,6 +100,7 @@ def remi2midi(events, output_midi_path=None, is_full_event=False, return_first_t
   else:
     if enforce_tempo_val is None:
       enforce_tempo_val = temp_tempos[1]
+      print(enforce_tempo_val)
     for t in enforce_tempo_val:
       midi_obj.tempo_changes.append(
         miditoolkit.TempoChange(t.tempo, int(t.start_tick))

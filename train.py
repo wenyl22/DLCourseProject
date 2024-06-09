@@ -26,7 +26,6 @@ ckpt_dir = config['training']['ckpt_dir']
 params_dir = os.path.join(ckpt_dir, 'params/')
 optim_dir = os.path.join(ckpt_dir, 'optim/')
 pretrained_params_path = config['model']['pretrained_params_path']
-pretrained_optim_path = config['model']['pretrained_optim_path']
 ckpt_interval = config['training']['ckpt_interval']
 log_interval = config['training']['log_interval']
 val_interval = config['training']['val_interval']
@@ -35,6 +34,7 @@ constant_kl = config['training']['constant_kl']
 recons_loss_ema = 0.
 kl_loss_ema = 0.
 kl_raw_ema = 0.
+style_loss_ema = 0.
 
 def log_epoch(log_file, log_data, is_init=False):
   if is_init:
@@ -84,7 +84,7 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
     global trained_steps
     trained_steps += 1
 
-    mu, logvar, dec_logits = model(
+    mu, logvar, dec_logits, style_cls_logits = model(
       batch_enc_inp, batch_dec_inp, 
       batch_inp_bar_pos, batch_rfreq_cls, batch_polyph_cls, batch_style_cls,
       padding_mask=batch_padding_mask
@@ -94,7 +94,7 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
       kl_beta = beta_cyclical_sched(trained_steps)
     else:
       kl_beta = kl_max_beta
-    losses = model.compute_loss(mu, logvar, kl_beta, free_bit_lambda, dec_logits, batch_dec_tgt)
+    losses = model.compute_loss(mu, logvar, kl_beta, free_bit_lambda, dec_logits, batch_dec_tgt, batch_style_cls, style_cls_logits)
     
     # anneal learning rate
     if trained_steps < lr_warmup_steps:
@@ -108,12 +108,13 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
     torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
     optim.step()
 
-    global recons_loss_ema, kl_loss_ema, kl_raw_ema
+    global recons_loss_ema, kl_loss_ema, kl_raw_ema, style_loss_ema
     recons_loss_ema = compute_loss_ema(recons_loss_ema, losses['recons_loss'].item())
     kl_loss_ema = compute_loss_ema(kl_loss_ema, losses['kldiv_loss'].item())
     kl_raw_ema = compute_loss_ema(kl_raw_ema, losses['kldiv_raw'].item())
-    print (' -- epoch {:03d} | batch {:03d}: len: {}\n\t * loss = (RC: {:.4f} | KL: {:.4f} | KL_raw: {:.4f}), step = {}, beta: {:.4f} time_elapsed = {:.2f} secs'.format(
-    epoch, batch_idx, batch_inp_lens, recons_loss_ema, kl_loss_ema, kl_raw_ema, trained_steps, kl_beta, time.time() - st
+    style_loss_ema = compute_loss_ema(style_loss_ema, losses['style_loss'].item())
+    print (' -- epoch {:03d} | batch {:03d}: len: {}\n\t * loss = (RC: {:.4f} | KL: {:.4f} | KL_raw: {:.4f} | style:{:.4f}), step = {}, beta: {:.4f} time_elapsed = {:.2f} secs'.format(
+    epoch, batch_idx, batch_inp_lens, recons_loss_ema, kl_loss_ema, kl_raw_ema, style_loss_ema, trained_steps, kl_beta, time.time() - st
     ))
 
     if not trained_steps % log_interval:
@@ -123,6 +124,7 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
         'recons_loss': recons_loss_ema,
         'kldiv_loss': kl_loss_ema,
         'kldiv_raw': kl_raw_ema,
+        'style_loss': style_loss_ema,
         'time': time.time() - st
       }
       log_epoch(
@@ -132,12 +134,14 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
     if not trained_steps % val_interval:
       vallosses = validate(model, dloader_val, n_rounds=3)
       with open(os.path.join(ckpt_dir, 'valloss.txt'), 'a') as f:
-        f.write('[step {}] RC: {:.4f} | KL: {:.4f} | [val] | RC: {:.4f} | KL: {:.4f}\n'.format(
+        f.write('[step {}] RC: {:.4f} | KL: {:.4f} | style: {:.4f} [val] | RC: {:.4f} | KL: {:.4f}|style:{:.4f}\n'.format(
           trained_steps, 
           recons_loss_ema, 
           kl_raw_ema,
+          style_loss_ema,
           np.mean(vallosses[0]),
-          np.mean(vallosses[1])
+          np.mean(vallosses[1]),
+          np.mean(vallosses[2])
         ))
       model.train()
 
@@ -149,16 +153,9 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
             kl_raw_ema
           ))
       )
-      torch.save(optim.state_dict(),
-        os.path.join(optim_dir, 'step_{:d}-RC_{:.3f}-KL_{:.3f}-optim.pt'.format(
-            trained_steps,
-            recons_loss_ema, 
-            kl_raw_ema
-          ))
-      )
 
-  print ('[epoch {:03d}] training completed\n  -- loss = (RC: {:.4f} | KL: {:.4f} | KL_raw: {:.4f})\n  -- time elapsed = {:.2f} secs.'.format(
-    epoch, recons_loss_ema, kl_loss_ema, kl_raw_ema, time.time() - st
+  print ('[epoch {:03d}] training completed\n  -- loss = (RC: {:.4f} | KL: {:.4f} | KL_raw: {:.4f} | style: {:.4f})\n  -- time elapsed = {:.2f} secs.'.format(
+    epoch, recons_loss_ema, kl_loss_ema, kl_raw_ema, style_loss_ema, time.time() - st
   ))
   log_data = {
     'ep': epoch,
@@ -166,6 +163,7 @@ def train_model(epoch, model, dloader, dloader_val, optim, sched):
     'recons_loss': recons_loss_ema,
     'kldiv_loss': kl_loss_ema,
     'kldiv_raw': kl_raw_ema,
+    'style_loss': style_loss_ema,
     'time': time.time() - st
   }
   log_epoch(
@@ -176,7 +174,7 @@ def validate(model, dloader, n_rounds=8, use_attr_cls=True):
   model.eval()
   loss_rec = []
   kl_loss_rec = []
-
+  style_loss_rec = []
   print ('[info] validating ...')
   with torch.no_grad():
     for i in range(n_rounds):
@@ -198,18 +196,19 @@ def validate(model, dloader, n_rounds=8, use_attr_cls=True):
           batch_rfreq_cls = None
           batch_polyph_cls = None
 
-        mu, logvar, dec_logits = model(
+        mu, logvar, dec_logits, style_cls_logits = model(
           batch_enc_inp, batch_dec_inp, 
           batch_inp_bar_pos, batch_rfreq_cls, batch_polyph_cls, batch_style_cls,
           padding_mask=batch_padding_mask
         )
 
-        losses = model.compute_loss(mu, logvar, 0.0, 0.0, dec_logits, batch_dec_tgt)
+        losses = model.compute_loss(mu, logvar, 0.0, 0.0, dec_logits, batch_dec_tgt, batch_style_cls, style_cls_logits)
 
         loss_rec.append(losses['recons_loss'].item())
         kl_loss_rec.append(losses['kldiv_raw'].item())
+        style_loss_rec.append(losses['style_loss'].item())
     
-  return loss_rec, kl_loss_rec
+  return loss_rec, kl_loss_rec, style_loss_rec
 
 if __name__ == "__main__":
   dset = ModelDataset(
@@ -251,8 +250,6 @@ if __name__ == "__main__":
 
   opt_params = filter(lambda p: p.requires_grad, model.parameters())
   optimizer = optim.Adam(opt_params, lr=max_lr)
-  if pretrained_optim_path:
-    optimizer.load_state_dict( torch.load(pretrained_optim_path) )
   scheduler = optim.lr_scheduler.CosineAnnealingLR(
     optimizer, lr_decay_steps, eta_min=min_lr
   )

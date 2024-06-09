@@ -27,7 +27,7 @@ class Item(object):
             self.name, self.start, self.end, self.velocity, self.pitch)
 
 # read notes and tempo changes from midi (assume there is only one track)
-def read_items(file_path):
+def read_items(file_path, ticks_per_beat=480):
     midi_obj = miditoolkit.midi.parser.MidiFile(file_path)
     # note
     note_items = []
@@ -54,7 +54,7 @@ def read_items(file_path):
     # expand to all beat
     max_tick = tempo_items[-1].start
     existing_ticks = {item.start: item.pitch for item in tempo_items}
-    wanted_ticks = np.arange(0, max_tick+1, DEFAULT_RESOLUTION)
+    wanted_ticks = np.arange(0, max_tick+1, ticks_per_beat)
     output = []
     for tick in wanted_ticks:
         if tick in existing_ticks:
